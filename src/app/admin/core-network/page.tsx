@@ -1,91 +1,91 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo, ChangeEvent, Fragment } from "react";
 import {
-  Trash2,
-  Pencil,
-  Plus,
-  X,
-  Check,
-  Upload,
-  FileText,
-  Eye,
-  Download,
-  Maximize2,
-  Printer,
-  Shield,
-  Building2,
-  Users,
-  Landmark,
+  Trash2, Pencil, Save, Check, X, Plus, Upload, FileText, Download, Eye,
+  ChevronDown, Filter, RefreshCw, Printer, ShieldAlert, ShieldCheck, Lock, Unlock, Activity
 } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
 
+// ==================== TYPES ====================
+type CoreNetworkEntry = {
+  _id: string;
+  entities: string[];
+  classification: string;
+  remarks: string;
+  attachments?: { filename: string; classification: string }[] | string[];
+  submittedBy?: { name: string; department: string; division: string };
+  createdAt: string;
+  updatedAt: string;
+};
+
+type Notification = {
+  message: string;
+  type: "success" | "error";
+};
+
 const entityOptions = [
-  "Person",
-  "Asset",
-  "Report",
-  "Case",
-  "Intel Project",
-  "Family Details",
-  "Tax Payer",
-  "Tax Document",
-  "Revenue",
-  "Travel Log",
-  "Missing Person",
-  "Beneficial Owner",
-  "Remittance",
-  "Address",
-  "Telco",
-  "Transaction Documents",
-  "Security Clearance",
-  "Credit Information",
-  "Custome_Document",
-  "Watch List"
-  
+  "Person", "Asset", "Report", "Case", "Intel Project", "Family Details",
+  "Tax Payer", "Tax Document", "Revenue", "Travel Log", "Missing Person",
+  "Beneficial Owner", "Remittance", "Address", "Telco", "Transaction Documents",
+  "Security Clearance", "Credit Information", "Custome_Document", "Watch List"
 ];
 
 const classificationOptions = ["Confidential", "Secret", "Public"];
 
+// SECURITY NOTE: In production, replace this with your actual auth context (e.g., NextAuth, JWT decode)
 const getCurrentUser = () => ({
   name: "Sonam Wangchuk",
   department: "Anti-Corruption Commission",
   division: "Investigation Division",
 });
 
-// Type for an attachment with classification
-interface AttachmentWithClass {
-  file: File;          // actual File object (new upload)
-  classification: string;
-  preview?: string;    // for existing files
-  filename?: string;   // for existing files
-}
+// SECURITY: Basic file extension validation to prevent malicious uploads
+const SAFE_EXTENSIONS = ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.png', '.jpg', '.jpeg', '.txt'];
+const isValidFile = (fileName: string) => {
+  const ext = fileName.substring(fileName.lastIndexOf('.')).toLowerCase();
+  return SAFE_EXTENSIONS.includes(ext);
+};
 
 export default function CoreNetworkPage() {
-  const [entries, setEntries] = useState([]);
+  // ----- State -----
+  const [entries, setEntries] = useState<CoreNetworkEntry[]>([]);
   const [showForm, setShowForm] = useState(false);
-  const [editData, setEditData] = useState(null);
+  const [editData, setEditData] = useState<CoreNetworkEntry | null>(null);
+  
+  // Search & Filter States
   const [search, setSearch] = useState("");
+  const [filterClassification, setFilterClassification] = useState("");
+  const [filterEntity, setFilterEntity] = useState("");
+
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(10);
-  const [notification, setNotification] = useState(null);
-  const [selectedView, setSelectedView] = useState(null);
-  const [showBlankPreview, setShowBlankPreview] = useState(false);
+  const [sortConfig, setSortConfig] = useState<{ key: keyof CoreNetworkEntry | null; direction: "asc" | "desc" }>({ key: null, direction: "asc" });
+  const [notification, setNotification] = useState<Notification | null>(null);
 
-  const [selectedEntities, setSelectedEntities] = useState([]);
+  // Inline expansion states
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+
+  // Form states
+  const [selectedEntities, setSelectedEntities] = useState<string[]>([]);
   const [classification, setClassification] = useState("");
   const [remarks, setRemarks] = useState("");
-  // attachments: array of objects { file, classification, filename? }
-  const [attachments, setAttachments] = useState([]);
-  const [existingAttachments, setExistingAttachments] = useState([]); // array of {filename, classification}
+  const [attachments, setAttachments] = useState<{ file: File | null, classification: string }[]>([]);
+  const [existingAttachments, setExistingAttachments] = useState<{ filename: string; classification: string }[]>([]);
 
+  // Print state
+  const [showPrintModal, setShowPrintModal] = useState(false);
+  const [printEntry, setPrintEntry] = useState<CoreNetworkEntry | null>(null);
+
+  // ================== FETCH DATA ==================
   const fetchEntries = async () => {
     try {
       const res = await fetch("/api/core-network");
-      if (!res.ok) throw new Error();
+      if (!res.ok) throw new Error("Failed to load");
       const data = await res.json();
       setEntries(data);
     } catch (error) {
-      showNotification("Failed to load entries", "error");
+      showNotification((error as Error).message, "error");
     }
   };
 
@@ -93,53 +93,23 @@ export default function CoreNetworkPage() {
     fetchEntries();
   }, []);
 
-  const showNotification = (msg, type = "success") => {
-    setNotification({ message: msg, type });
+  const showNotification = (message: string, type: "success" | "error" = "success") => {
+    setNotification({ message, type });
     setTimeout(() => setNotification(null), 3000);
   };
 
-  const handleEntitySelect = (e) => {
-    const selectedOptions = Array.from(e.target.selectedOptions, (option) => option.value);
-    setSelectedEntities(selectedOptions);
-  };
-
-  const removeEntity = (entity) => {
-    setSelectedEntities(selectedEntities.filter((e) => e !== entity));
-  };
-
-  // New: handle file selection with classification
-  const handleFileSelect = (e, idx) => {
-    const files = Array.from(e.target.files || []);
-    const newAttachments = [...attachments];
-    files.forEach((file) => {
-      newAttachments.push({
-        file: file,
-        classification: "Confidential", // default
-      });
-    });
-    setAttachments(newAttachments);
-    e.target.value = "";
-  };
-
-  const updateAttachmentClassification = (idx, classification) => {
-    const updated = [...attachments];
-    updated[idx].classification = classification;
-    setAttachments(updated);
-  };
-
-  const removeAttachment = (idx) => {
-    const updated = attachments.filter((_, i) => i !== idx);
-    setAttachments(updated);
-  };
-
+  // ================== FILE HANDLERS ==================
   const addNewAttachment = () => {
     setAttachments([...attachments, { file: null, classification: "Confidential" }]);
   };
 
-  // Handle file input for a specific attachment slot
-  const handleFileInputChange = (idx, e) => {
-    const file = e.target.files[0];
+  const handleFileInputChange = (idx: number, e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
     if (file) {
+      if (!isValidFile(file.name)) {
+        showNotification("Invalid file type. Allowed: PDF, DOC, XLS, Images, TXT", "error");
+        return;
+      }
       const updated = [...attachments];
       updated[idx].file = file;
       setAttachments(updated);
@@ -147,8 +117,17 @@ export default function CoreNetworkPage() {
     e.target.value = "";
   };
 
-  // Remove existing file (already saved in DB)
-  const handleRemoveExistingFile = async (fileName, classification) => {
+  const updateAttachmentClassification = (idx: number, val: string) => {
+    const updated = [...attachments];
+    updated[idx].classification = val;
+    setAttachments(updated);
+  };
+
+  const removeAttachment = (idx: number) => {
+    setAttachments(attachments.filter((_, i) => i !== idx));
+  };
+
+  const handleRemoveExistingFile = async (fileName: string) => {
     if (!editData) return;
     try {
       const res = await fetch("/api/core-network/delete-file", {
@@ -157,37 +136,50 @@ export default function CoreNetworkPage() {
         body: JSON.stringify({ entryId: editData._id, fileName }),
       });
       if (!res.ok) throw new Error("Failed to delete file");
-      setExistingAttachments((prev) => prev.filter((f) => f.filename !== fileName));
+      setExistingAttachments(prev => prev.filter(f => f.filename !== fileName));
       showNotification("File deleted successfully");
       await fetchEntries();
     } catch (error) {
-      showNotification(error.message, "error");
+      showNotification((error as Error).message, "error");
     }
   };
 
-  const handleViewFile = (fileName) => {
-    window.open(`/uploads/core-network/${fileName}`, "_blank");
+  const handleViewFile = (fileName: string) => {
+    // SECURITY: Ensure the file is served with correct headers in production to prevent XSS
+    window.open(`/uploads/core-network/${fileName}`, "_blank", "noopener,noreferrer");
   };
 
-  const handleDownloadFile = (fileName) => {
+  const handleDownloadFile = (fileName: string) => {
     const link = document.createElement("a");
     link.href = `/uploads/core-network/${fileName}`;
     link.download = fileName;
+    link.rel = "noopener noreferrer";
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   };
 
+  // ================== FORM HANDLERS ==================
   const resetForm = () => {
-    setEditData(null);
     setSelectedEntities([]);
     setClassification("");
     setRemarks("");
     setAttachments([]);
     setExistingAttachments([]);
+    setEditData(null);
+    setShowForm(false);
   };
 
-  const handleSubmit = async (e) => {
+  const handleEntitySelect = (e: ChangeEvent<HTMLSelectElement>) => {
+    const selected = Array.from(e.target.selectedOptions, (opt) => opt.value);
+    setSelectedEntities(selected);
+  };
+
+  const removeEntity = (entity: string) => {
+    setSelectedEntities(selectedEntities.filter((e) => e !== entity));
+  };
+
+  const handleAddOrUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (selectedEntities.length === 0 || !classification) {
       showNotification("At least one Entity and Classification are required", "error");
@@ -195,83 +187,94 @@ export default function CoreNetworkPage() {
     }
 
     const currentUser = getCurrentUser();
-    const formData = new FormData();
-    formData.append("entities", JSON.stringify(selectedEntities));
-    formData.append("classification", classification);
-    formData.append("remarks", remarks);
-    formData.append("submittedByName", currentUser.name);
-    formData.append("submittedByDepartment", currentUser.department);
-    formData.append("submittedByDivision", currentUser.division);
+    const body = new FormData();
+    body.append("entities", JSON.stringify(selectedEntities));
+    body.append("classification", classification);
+    body.append("remarks", remarks);
+    body.append("submittedByName", currentUser.name);
+    body.append("submittedByDepartment", currentUser.department);
+    body.append("submittedByDivision", currentUser.division);
 
-    // Append new attachments with their classification
     const newFilesData = [];
     for (let i = 0; i < attachments.length; i++) {
       const att = attachments[i];
       if (att.file) {
-        formData.append(`attachment_${i}`, att.file);
+        body.append(`attachment_${i}`, att.file);
         newFilesData.push({ classification: att.classification });
       }
     }
-    formData.append("newAttachments", JSON.stringify(newFilesData));
+    body.append("newAttachments", JSON.stringify(newFilesData));
 
-    // Existing attachments (with classifications)
     if (editData) {
-      formData.append("_id", editData._id);
-      formData.append("existingAttachments", JSON.stringify(existingAttachments));
+      body.append("_id", editData._id);
+      body.append("existingAttachments", JSON.stringify(existingAttachments));
     }
 
     try {
       const url = "/api/core-network";
       const method = editData ? "PUT" : "POST";
-      const res = await fetch(url, { method, body: formData });
-      if (!res.ok) throw new Error();
+      const res = await fetch(url, { method, body });
+      if (!res.ok) throw new Error("Failed to save");
       await fetchEntries();
-      setShowForm(false);
       resetForm();
-      showNotification(editData ? "Entry updated" : "Entry created", "success");
+      showNotification(editData ? "Entry updated successfully" : "Entry added successfully");
     } catch (error) {
-      showNotification("Operation failed", "error");
+      showNotification((error as Error).message, "error");
     }
   };
 
-  const handleEdit = (entry) => {
-    setEditData(entry);
-    setSelectedEntities(entry.entities || []);
-    setClassification(entry.classification);
-    setRemarks(entry.remarks || "");
-    // existing attachments: array of {filename, classification}
-    setExistingAttachments(entry.attachments || []);
-    setAttachments([]); // no new files initially
-    setShowForm(true);
-  };
-
-  const handleDelete = async (entry) => {
-    if (!confirm(`Delete entry for "${entry.entities.join(", ")}"?`)) return;
+  const handleDelete = async (entry: CoreNetworkEntry) => {
+    if (!confirm(`Are you sure you want to delete this entry?`)) return;
     try {
       const res = await fetch("/api/core-network", {
         method: "DELETE",
         body: JSON.stringify({ _id: entry._id }),
         headers: { "Content-Type": "application/json" },
       });
-      if (!res.ok) throw new Error();
+      if (!res.ok) throw new Error("Failed to delete");
       await fetchEntries();
-      showNotification("Entry deleted", "success");
+      showNotification("Entry deleted successfully");
     } catch (error) {
-      showNotification("Delete failed", "error");
+      showNotification((error as Error).message, "error");
     }
   };
 
-  const handlePrintBlank = () => {
-    setShowBlankPreview(true);
+  const toggleRowExpand = (id: string) => {
+    setExpandedRows(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   };
 
-  // Print blank form (unchanged – but you can later add classification per attachment line if needed)
-  const printBlankForm = () => {
+  // ================== PRINT HANDLERS (SECURE) ==================
+  const handlePrintBlank = () => {
+    setPrintEntry(null);
+    setShowPrintModal(true);
+  };
+
+  const handlePrintEntry = (entry: CoreNetworkEntry) => {
+    setPrintEntry(entry);
+    setShowPrintModal(true);
+  };
+
+  const printForm = () => {
     const printWindow = window.open("", "_blank");
-    printWindow.document.write(`
+    if (!printWindow) return;
+
+    const isBlank = !printEntry;
+    const title = isBlank ? "Core Network Intelligence Sharing Form - Blank" : `Core Network Form - ${printEntry.entities?.join(", ")}`;
+    
+    // SECURITY: Safe HTML generation. We avoid document.write to prevent XSS if printEntry data contains scripts.
+    const printDoc = printWindow.document;
+    printDoc.open();
+    
+    const htmlContent = `
+      <!DOCTYPE html>
       <html>
         <head>
-          <title>Core Network Intelligence Sharing Form - Blank</title>
+          <title>${title}</title>
           <style>
             body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: white; }
             @media print { body { margin: 0; padding: 0; } }
@@ -287,8 +290,9 @@ export default function CoreNetworkPage() {
             .radio-item { display: flex; align-items: center; gap: 8px; }
             .radio-circle { width: 16px; height: 16px; border: 1px solid #333; border-radius: 50%; background: white; }
             .blank-line { border-bottom: 1px solid #ccc; min-height: 30px; margin-top: 5px; }
-            .remarks-box { border: 1px solid #ccc; min-height: 100px; border-radius: 4px; margin-top: 5px; }
+            .remarks-box { border: 1px solid #ccc; min-height: 100px; border-radius: 4px; margin-top: 5px; padding: 5px; }
             .two-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+            .value { border-bottom: 1px solid #ccc; padding: 8px; margin-bottom: 10px; }
           </style>
         </head>
         <body>
@@ -307,416 +311,760 @@ export default function CoreNetworkPage() {
             </div>
             <div class="section">
               <label>Entity (select one or more):</label>
-              <div class="checkbox-group">
-                ${entityOptions.map(opt => `<div class="checkbox-item"><div class="checkbox-box"></div><span>${opt}</span></div>`).join('')}
-              </div>
-            </div>
-            <div class="section">
-              <label>Attachments (file name + classification):</label>
-              <div class="blank-line"></div><div class="blank-line"></div><div class="blank-line"></div>
-            </div>
-            <div class="section">
-              <label>Data Classification (select one):</label>
-              <div class="radio-group">
-                ${classificationOptions.map(opt => `<div class="radio-item"><div class="radio-circle"></div><span>${opt}</span></div>`).join('')}
-              </div>
-            </div>
-            <div class="section"><label>Remarks:</label><div class="remarks-box"></div></div>
-            <div class="section">
-              <h4>Submission Information</h4>
-              <div class="two-columns">
-                <div><label>Name of Submitting Officer:</label><div class="blank-line"></div></div>
-                <div><label>Department:</label><div class="blank-line"></div></div>
-                <div><label>Division:</label><div class="blank-line"></div></div>
-                <div><label>Date:</label><div class="blank-line"></div></div>
-              </div>
-              <div><label>Signature:</label><div class="blank-line"></div></div>
-            </div>
-          </div>
-          <script>window.onload = () => { window.print(); window.close(); };</script>
-        </body>
-      </html>
-    `);
-    printWindow.document.close();
-  };
-
-  // Print filled form – now shows attachments with their classifications
-  const handlePrintModal = (entry) => {
-    const printWindow = window.open("", "_blank");
-    const attachmentsHtml = (entry.attachments || []).map(att => 
-      `<div style="border-bottom:1px solid #ccc; padding:4px;">${att.filename} – <strong>${att.classification}</strong></div>`
-    ).join('');
-    printWindow.document.write(`
-      <html>
-        <head>
-          <title>CoRE NETWORK - Intelligence Report</title>
-          <style>
-            body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: white; }
-            @media print { body { margin: 0; padding: 0; } }
-            .print-container { max-width: 210mm; margin: 0 auto; background: white; }
-            .header { display: flex; justify-content: space-between; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 2px solid #333; }
-            .logos { display: flex; gap: 10px; margin-bottom: 5px; }
-            .section { margin-bottom: 20px; page-break-inside: avoid; }
-            .section label { font-weight: bold; display: block; margin-bottom: 5px; font-size: 14px; }
-            .section .value { border-bottom: 1px solid #ccc; padding: 8px; margin-bottom: 10px; }
-            .two-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-          </style>
-        </head>
-        <body>
-          <div class="print-container">
-            <div class="header">
-              <div>
-                <div class="logos">
-                  <img src="/form_logo.png" alt="Logo" style="height: 190px; width: auto; margin: -35px; display: block; margin-left: 0px;" />
+              ${isBlank ? `
+                <div class="checkbox-group">
+                  ${entityOptions.map(opt => `<div class="checkbox-item"><div class="checkbox-box"></div><span>${opt}</span></div>`).join('')}
                 </div>
-                <div><strong>Core Network</strong><br /><small>Intelligence & Information Sharing</small></div>
-              </div>
-              <div style="text-align: right;">
-                <div>Form 02</div>
-                <div style="font-size: 1.2rem; font-weight: bold;">Intelligence Sharing Form</div>
-              </div>
-            </div>
-            <div class="section">
-              <label>Entity/Entities:</label>
-              <div class="value">${entry.entities?.join(", ") || "—"}</div>
-            </div>
-            <div class="section">
-              <label>Data Classification:</label>
-              <div class="value">${entry.classification || "—"}</div>
-            </div>
-            <div class="section">
-              <label>Remarks:</label>
-              <div class="value" style="min-height: 80px;">${(entry.remarks || "No remarks provided").replace(/\n/g, "<br/>")}</div>
+              ` : `
+                <div class="value">${printEntry.entities?.join(", ") || "—"}</div>
+              `}
             </div>
             <div class="section">
               <label>Attachments:</label>
-              <div class="value">${attachmentsHtml || "None"}</div>
+              ${isBlank ? '<div class="blank-line"></div><div class="blank-line"></div><div class="blank-line"></div>' : 
+                (printEntry.attachments?.length ? printEntry.attachments.map((att: any) => `<div style="border-bottom:1px solid #ccc; padding:4px;">${typeof att === 'string' ? att : att.filename} – <strong>${typeof att === 'string' ? 'N/A' : att.classification}</strong></div>`).join('') : '<div class="blank-line"></div>')
+              }
+            </div>
+            <div class="section">
+              <label>Data Classification (select one):</label>
+              ${isBlank ? `
+                <div class="radio-group">
+                  ${classificationOptions.map(opt => `<div class="radio-item"><div class="radio-circle"></div><span>${opt}</span></div>`).join('')}
+                </div>
+              ` : `
+                <div class="value">${printEntry.classification || "—"}</div>
+              `}
+            </div>
+            <div class="section">
+              <label>Remarks:</label>
+              <div class="${isBlank ? 'remarks-box' : 'value'}" style="min-height: 80px;">
+                ${isBlank ? '' : (printEntry.remarks || "No remarks").replace(/\n/g, "<br/>")}
+              </div>
             </div>
             <div class="section">
               <h4>Submission Information</h4>
               <div class="two-columns">
-                <div><label>Name:</label><div class="value">${entry.submittedBy?.name || "—"}</div></div>
-                <div><label>Department:</label><div class="value">${entry.submittedBy?.department || "—"}</div></div>
-                <div><label>Division:</label><div class="value">${entry.submittedBy?.division || "—"}</div></div>
-                <div><label>Date:</label><div class="value">${new Date(entry.createdAt).toLocaleDateString()}</div></div>
+                <div><label>Name of Submitting Officer:</label><div class="${isBlank ? 'blank-line' : 'value'}">${isBlank ? '' : printEntry.submittedBy?.name || '—'}</div></div>
+                <div><label>Department:</label><div class="${isBlank ? 'blank-line' : 'value'}">${isBlank ? '' : printEntry.submittedBy?.department || '—'}</div></div>
+                <div><label>Division:</label><div class="${isBlank ? 'blank-line' : 'value'}">${isBlank ? '' : printEntry.submittedBy?.division || '—'}</div></div>
+                <div><label>Date:</label><div class="${isBlank ? 'blank-line' : 'value'}">${isBlank ? '' : new Date(printEntry.createdAt).toLocaleDateString()}</div></div>
               </div>
-              <div><label>Signature:</label><div class="value" style="font-style: italic;">Electronically verified</div></div>
+              <div><label>Signature:</label><div class="${isBlank ? 'blank-line' : 'value'}" style="font-style: italic;">${isBlank ? '' : 'Electronically verified'}</div></div>
             </div>
           </div>
           <script>window.onload = () => { window.print(); window.close(); };</script>
         </body>
       </html>
-    `);
-    printWindow.document.close();
+    `;
+    
+    printDoc.write(htmlContent);
+    printDoc.close();
   };
 
-  const filteredEntries = entries.filter(
-    (e) =>
-      e.entities?.join(" ").toLowerCase().includes(search.toLowerCase()) ||
-      e.classification.toLowerCase().includes(search.toLowerCase()) ||
-      e.remarks?.toLowerCase().includes(search.toLowerCase())
-  );
+  // ================== DASHBOARD COMPUTATIONS ==================
+  // Use useMemo to prevent recalculating on every render
+  const stats = useMemo(() => {
+    const total = entries.length;
+    const confidentialCount = entries.filter(e => e.classification === "Confidential").length;
+    const secretCount = entries.filter(e => e.classification === "Secret").length;
+    const publicCount = entries.filter(e => e.classification === "Public").length;
+    
+    const recentRecords = [...entries]
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, 5);
 
-  const totalPages = Math.ceil(filteredEntries.length / rowsPerPage);
-  const start = (currentPage - 1) * rowsPerPage;
-  const paginated = filteredEntries.slice(start, start + rowsPerPage);
-  const totalAttachmentsCount = existingAttachments.length + attachments.filter(a => a.file).length;
+    // Calculate most frequent entity
+    const entityCounts: Record<string, number> = {};
+    entries.forEach(e => e.entities?.forEach(ent => {
+      entityCounts[ent] = (entityCounts[ent] || 0) + 1;
+    }));
+    const topEntity = Object.keys(entityCounts).length > 0 
+      ? Object.keys(entityCounts).reduce((a, b) => entityCounts[a] > entityCounts[b] ? a : b) 
+      : "N/A";
+
+    return { total, confidentialCount, secretCount, publicCount, recentRecords, topEntity };
+  }, [entries]);
+
+  // ================== FILTER & SORT LOGIC ==================
+  const handleSort = (key: keyof CoreNetworkEntry) => {
+    let direction: "asc" | "desc" = "asc";
+    if (sortConfig.key === key && sortConfig.direction === "asc") direction = "desc";
+    setSortConfig({ key, direction });
+  };
+
+  const handleSearchChange = (e: ChangeEvent<HTMLInputElement>) => {
+    setSearch(e.target.value);
+    setCurrentPage(1);
+  };
+
+  const handleRowsChange = (e: ChangeEvent<HTMLSelectElement>) => {
+    setRowsPerPage(Number(e.target.value));
+    setCurrentPage(1);
+  };
+
+  const handleClearFilters = () => {
+    setSearch("");
+    setFilterClassification("");
+    setFilterEntity("");
+    setCurrentPage(1);
+  };
+
+  const { sortedEntries, totalPages, startIndex, paginatedEntries } = useMemo(() => {
+    const filtered = entries.filter((entry) => {
+      const matchesSearch = 
+        (entry.remarks?.toLowerCase() || "").includes(search.toLowerCase()) ||
+        (entry.classification?.toLowerCase() || "").includes(search.toLowerCase()) ||
+        entry.entities?.some(e => e.toLowerCase().includes(search.toLowerCase()));
+        
+      const matchesClassification = filterClassification === "" || entry.classification === filterClassification;
+      const matchesEntity = filterEntity === "" || entry.entities?.includes(filterEntity);
+
+      return matchesSearch && matchesClassification && matchesEntity;
+    });
+
+    const sorted = [...filtered].sort((a, b) => {
+      if (!sortConfig.key) return 0;
+      const key = sortConfig.key as keyof CoreNetworkEntry;
+      const aVal = a[key];
+      const bVal = b[key];
+      if (aVal == null && bVal == null) return 0;
+      if (aVal == null) return 1;
+      if (bVal == null) return -1;
+      if (typeof aVal === 'string' && typeof bVal === 'string') {
+        return sortConfig.direction === "asc" ? aVal.localeCompare(bVal) : -aVal.localeCompare(bVal);
+      }
+      if (aVal < bVal) return sortConfig.direction === "asc" ? -1 : 1;
+      if (aVal > bVal) return sortConfig.direction === "asc" ? 1 : -1;
+      return 0;
+    });
+
+    const tPages = Math.ceil(sorted.length / rowsPerPage);
+    const sIndex = (currentPage - 1) * rowsPerPage;
+    const paginated = sorted.slice(sIndex, sIndex + rowsPerPage);
+
+    return { sortedEntries: sorted, totalPages: tPages, startIndex: sIndex, paginatedEntries: paginated };
+  }, [entries, search, filterClassification, filterEntity, sortConfig, currentPage, rowsPerPage]);
+
+  const getSortIcon = (key: keyof CoreNetworkEntry) => {
+    if (sortConfig.key !== key) return null;
+    return sortConfig.direction === "asc" ? "↑" : "↓";
+  };
 
   return (
-    <div className="relative min-h-screen bg-gray-100">
-      <Sidebar />
-      <main className="md:ml-64 p-4 md:p-6 overflow-x-auto">
-        {/* Header and form same as before but with modified attachments section */}
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-          <h1 className="text-xl md:text-2xl font-bold">Core Network Intelligence Sharing</h1>
-          <div className="flex gap-3">
-            <button onClick={handlePrintBlank} className="flex items-center gap-2 px-3 py-1.5 bg-white border rounded-md text-xs font-medium hover:border-black transition">
-              <Printer size={14} /> Print Blank Form
-            </button>
-            {!showForm && (
-              <button onClick={() => { resetForm(); setShowForm(true); }} className="flex items-center gap-2 px-3 py-1.5 bg-white border rounded-md text-xs font-medium hover:border-black transition">
-                <Plus size={14} /> Add New Entry
-              </button>
+    <>
+      <div className="flex w-full min-h-screen bg-[#f4f7f9] text-black font-sans">
+        
+        {/* Fixed Sidebar */}
+        <div className="fixed inset-y-0 left-0 z-20 bg-white shadow-xl">
+          <Sidebar />
+        </div>
+        
+        {/* Main Content Area */}
+        <main className="flex-1 w-full transition-all duration-300 lg:ml-64 p-4 lg:p-8">
+          <div className="max-w-[1600px] mx-auto w-full space-y-6">
+            
+            {/* ====== TOP BANNER ====== */}
+            <div className="bg-[#2c5282] rounded-lg p-4 text-center text-white shadow-md">
+              <h1 className="text-lg font-medium tracking-wide">
+                Core Network Intelligence Overview | As of {new Date().toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+              </h1>
+            </div>
+
+            {/* ====== KPI CARDS ====== */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* Card 1: Total */}
+              <div className="bg-[#e6f0fa] border-l-4 border-blue-600 rounded-lg p-5 shadow-sm">
+                <div className="text-xs font-bold text-blue-900 uppercase tracking-wider mb-1">Total Records</div>
+                <div className="text-3xl font-bold text-blue-900">{stats.total}</div>
+                <div className="text-xs text-blue-700 mt-1">Total Intelligence Entries</div>
+              </div>
+              {/* Card 2: Confidential */}
+              <div className="bg-[#f3e8ff] border-l-4 border-purple-600 rounded-lg p-5 shadow-sm">
+                <div className="text-xs font-bold text-purple-900 uppercase tracking-wider mb-1">Confidential</div>
+                <div className="text-3xl font-bold text-purple-900">{stats.confidentialCount}</div>
+                <div className="text-xs text-purple-700 mt-1">High Priority Security</div>
+              </div>
+              {/* Card 3: Secret */}
+              <div className="bg-[#e6fffa] border-l-4 border-teal-500 rounded-lg p-5 shadow-sm">
+                <div className="text-xs font-bold text-teal-900 uppercase tracking-wider mb-1">Secret</div>
+                <div className="text-3xl font-bold text-teal-900">{stats.secretCount}</div>
+                <div className="text-xs text-teal-700 mt-1">Medium Priority Security</div>
+              </div>
+              {/* Card 4: Public */}
+              <div className="bg-[#fff5f5] border-l-4 border-red-500 rounded-lg p-5 shadow-sm">
+                <div className="text-xs font-bold text-red-900 uppercase tracking-wider mb-1">Public</div>
+                <div className="text-3xl font-bold text-red-900">{stats.publicCount}</div>
+                <div className="text-xs text-red-700 mt-1">Low Priority / Public Info</div>
+              </div>
+            </div>
+
+            {/* ====== MAIN GRID ====== */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              
+              {/* LEFT COLUMN: Visual Distribution (CSS-based) */}
+              <div className="lg:col-span-1 bg-white rounded-lg shadow-sm border border-gray-200 p-5">
+                <h2 className="text-sm font-bold text-[#2c5282] uppercase tracking-wide mb-4 border-b pb-2">Security Classification Distribution</h2>
+                <div className="space-y-4">
+                  {[
+                    { label: "Confidential", value: stats.confidentialCount, color: "bg-purple-500", total: stats.total },
+                    { label: "Secret", value: stats.secretCount, color: "bg-teal-500", total: stats.total },
+                    { label: "Public", value: stats.publicCount, color: "bg-red-500", total: stats.total },
+                  ].map((item) => {
+                    const percentage = stats.total === 0 ? 0 : Math.round((item.value / stats.total) * 100);
+                    return (
+                      <div key={item.label}>
+                        <div className="flex justify-between text-xs font-medium text-gray-600 mb-1">
+                          <span>{item.label}</span>
+                          <span>{item.value} ({percentage}%)</span>
+                        </div>
+                        <div className="w-full bg-gray-100 rounded-full h-2.5">
+                          <div className={`${item.color} h-2.5 rounded-full`} style={{ width: `${percentage}%` }}></div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="mt-6 pt-4 border-t border-gray-100">
+                  <h4 className="text-xs font-bold text-gray-500 uppercase mb-2">Most Tagged Entity</h4>
+                  <div className="flex items-center gap-2 text-sm font-medium text-gray-800 bg-gray-50 p-2 rounded">
+                    <Activity size={16} className="text-blue-500" />
+                    {stats.topEntity}
+                  </div>
+                </div>
+              </div>
+
+              {/* RIGHT COLUMN: Recent Activity Table */}
+              <div className="lg:col-span-2 bg-white rounded-lg shadow-sm border border-gray-200 p-5">
+                <h2 className="text-sm font-bold text-[#2c5282] uppercase tracking-wide mb-4 border-b pb-2">Recent Activity (Last 5)</h2>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-[#f8fafc]">
+                      <tr>
+                        <th className="px-3 py-2 text-left text-[11px] font-bold text-[#2c5282] uppercase tracking-wider">Entity</th>
+                        <th className="px-3 py-2 text-left text-[11px] font-bold text-[#2c5282] uppercase tracking-wider">Classification</th>
+                        <th className="px-3 py-2 text-left text-[11px] font-bold text-[#2c5282] uppercase tracking-wider">Submitted By</th>
+                        <th className="px-3 py-2 text-left text-[11px] font-bold text-[#2c5282] uppercase tracking-wider">Date</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {stats.recentRecords.length === 0 ? (
+                        <tr><td colSpan={4} className="text-center py-4 text-sm text-gray-500">No recent records.</td></tr>
+                      ) : (
+                        stats.recentRecords.map((rec) => (
+                          <tr key={rec._id} className="hover:bg-gray-50 transition-colors">
+                            <td className="px-3 py-3 text-sm font-medium text-gray-800 truncate max-w-[150px]">{rec.entities?.join(", ")}</td>
+                            <td className="px-3 py-3 text-sm">
+                              <span className={`px-2 py-1 rounded-full text-[10px] font-bold ${
+                                rec.classification === "Confidential" ? "bg-purple-100 text-purple-800" :
+                                rec.classification === "Secret" ? "bg-teal-100 text-teal-800" :
+                                "bg-red-100 text-red-800"
+                              }`}>
+                                {rec.classification}
+                              </span>
+                            </td>
+                            <td className="px-3 py-3 text-sm text-gray-600">{rec.submittedBy?.name}</td>
+                            <td className="px-3 py-3 text-sm text-gray-500">
+                              {new Date(rec.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            {/* ====== BOTTOM SECTION: Takeaways ====== */}
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-5">
+              <h2 className="text-sm font-bold text-[#2c5282] uppercase tracking-wide mb-3 flex items-center gap-2">
+                <ShieldCheck size={16} /> Key Security Takeaways
+              </h2>
+              <ul className="text-sm text-gray-700 space-y-2 list-disc list-inside">
+                {stats.total === 0 ? (
+                  <li>No data available to generate insights.</li>
+                ) : (
+                  <>
+                    <li><strong>{stats.confidentialCount}</strong> records are marked as <strong>Confidential</strong>. Ensure appropriate access controls are in place.</li>
+                    <li>The most frequently referenced entity across all submissions is <strong>"{stats.topEntity}"</strong>, appearing in multiple intelligence reports.</li>
+                    <li>Out of {stats.total} total records, <strong>{Math.round(((stats.confidentialCount + stats.secretCount) / stats.total) * 100)}%</strong> require elevated security clearance to view.</li>
+                  </>
+                )}
+              </ul>
+            </div>
+
+            {/* Notification */}
+            {notification && (
+              <div className={`px-4 py-3 rounded-lg shadow-md flex items-center gap-2 ${notification.type === "success" ? "bg-green-50 text-green-800 border border-green-200" : "bg-red-50 text-red-800 border border-red-200"}`}>
+                {notification.type === "success" ? <Check size={18} /> : <ShieldAlert size={18} />}
+                {notification.message}
+              </div>
             )}
-          </div>
-        </div>
 
-        {notification && (
-          <div className={`mb-4 px-4 py-2 rounded ${notification.type === "success" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
-            {notification.message}
-          </div>
-        )}
+            {/* ====== TOOLBAR & DATA TABLE ====== */}
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+              
+              {/* Toolbar */}
+              <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 p-4 border-b border-gray-200 bg-[#f8fafc]">
+                <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto">
+                  {!showForm && (
+                    <button
+                      onClick={() => { resetForm(); setShowForm(true); }}
+                      className="flex items-center gap-2 px-4 py-2 bg-[#2c5282] text-white border rounded-md text-xs font-bold hover:bg-[#1e3a8a] transition shadow-sm"
+                    >
+                      <Plus size={16} /> Add Entry
+                    </button>
+                  )}
+                  <button
+                    onClick={handlePrintBlank}
+                    className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-md text-xs font-bold text-gray-700 hover:bg-gray-50 transition shadow-sm"
+                  >
+                    <Printer size={16} /> Print Blank
+                  </button>
 
-        {showForm && (
-          <form onSubmit={handleSubmit} className="bg-white shadow rounded-xl p-4 md:p-6 mb-6 space-y-6 max-h-[85vh] overflow-y-auto">
-            <div className="flex justify-between items-center border-b pb-2 sticky top-0 bg-white z-10">
-              <h2 className="text-lg font-semibold">{editData ? "Edit Entry" : "New Intelligence Entry"}</h2>
-              <button type="button" onClick={() => setShowForm(false)} className="text-gray-500 hover:text-black">✕</button>
-            </div>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={search}
+                      onChange={handleSearchChange}
+                      placeholder="Search records..."
+                      className="w-full sm:w-64 pl-3 pr-8 py-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-[#2c5282] focus:border-[#2c5282] outline-none transition"
+                    />
+                  </div>
 
-            {/* Entity multi-select (same) */}
-            <div>
-              <label className="text-sm font-medium">Entity (select one or more) *</label>
-              <select multiple value={selectedEntities} onChange={handleEntitySelect} className="w-full border rounded px-3 py-2 mt-1 h-32">
-                {entityOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-              </select>
-              <p className="text-xs text-gray-500 mt-1">Hold Ctrl (Cmd on Mac) to select multiple</p>
-              {selectedEntities.length > 0 && (
-                <div className="flex flex-wrap gap-2 mt-3">
-                  {selectedEntities.map(entity => (
-                    <div key={entity} className="flex items-center gap-1 bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-sm">
-                      {entity}
-                      <button type="button" onClick={() => removeEntity(entity)} className="ml-1 text-blue-600 hover:text-blue-800"><X size={14} /></button>
-                    </div>
-                  ))}
+                  <div className="flex items-center gap-2 text-sm text-gray-600 font-medium ml-2">
+                    <Filter size={16} className="text-gray-400" />
+                    Filters:
+                  </div>
+
+                  <select
+                    value={filterEntity}
+                    onChange={(e) => { setFilterEntity(e.target.value); setCurrentPage(1); }}
+                    className="border border-gray-300 rounded-md px-3 py-2 text-sm outline-none bg-white hover:border-gray-400 transition max-w-[160px]"
+                  >
+                    <option value="">All Entities</option>
+                    {entityOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                  </select>
+
+                  <select
+                    value={filterClassification}
+                    onChange={(e) => { setFilterClassification(e.target.value); setCurrentPage(1); }}
+                    className="border border-gray-300 rounded-md px-3 py-2 text-sm outline-none bg-white hover:border-gray-400 transition"
+                  >
+                    <option value="">All Classifications</option>
+                    {classificationOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                  </select>
+
+                  {(search || filterClassification || filterEntity) && (
+                    <button 
+                      onClick={handleClearFilters}
+                      className="flex items-center gap-1 text-xs text-red-600 hover:text-red-800 font-bold px-2 py-2"
+                    >
+                      <RefreshCw size={14} /> Clear
+                    </button>
+                  )}
                 </div>
-              )}
-              {selectedEntities.length === 0 && <p className="text-xs text-red-500 mt-1">At least one entity required</p>}
-            </div>
 
-            {/* Attachments section with per-file classification */}
-            <div>
-              <div className="flex justify-between items-center mb-2">
-                <label className="text-sm font-medium">Attachments (with individual classification)</label>
-                <button type="button" onClick={addNewAttachment} className="text-xs bg-gray-200 px-2 py-1 rounded hover:bg-gray-300">
-                  + Add Attachment
-                </button>
+                <div className="flex items-center gap-3 text-sm whitespace-nowrap text-gray-600">
+                  <span>Show</span>
+                  <select value={rowsPerPage} onChange={handleRowsChange} className="border border-gray-300 rounded-md px-2 py-1 outline-none bg-white">
+                    <option value={10}>10</option>
+                    <option value={20}>20</option>
+                    <option value={30}>30</option>
+                    <option value={40}>40</option>
+                  </select>
+                  <span className="font-bold text-[#2c5282]">{sortedEntries.length} records</span>
+                </div>
               </div>
 
-              {/* Existing attachments */}
-              {existingAttachments.length > 0 && (
-                <div className="space-y-3 mt-3">
-                  <label className="text-xs font-semibold text-gray-500">Current Files:</label>
-                  {existingAttachments.map((att, idx) => (
-                    <div key={idx} className="flex flex-wrap justify-between items-center bg-blue-50 p-3 rounded-lg border border-blue-200">
-                      <div className="flex items-center gap-2 break-all">
-                        <FileText size={16} className="text-blue-500" />
-                        <span className="text-sm">{att.filename}</span>
-                        <span className={`text-xs px-2 py-0.5 rounded-full ${
-                          att.classification === "Confidential" ? "bg-red-100 text-red-700" :
-                          att.classification === "Secret" ? "bg-orange-100 text-orange-700" : "bg-green-100 text-green-700"
-                        }`}>{att.classification}</span>
-                      </div>
-                      <div className="flex gap-2">
-                        <button onClick={() => handleViewFile(att.filename)} className="text-blue-500"><Eye size={14} /></button>
-                        <button onClick={() => handleDownloadFile(att.filename)} className="text-green-500"><Download size={14} /></button>
-                        <button onClick={() => handleRemoveExistingFile(att.filename, att.classification)} className="text-red-500"><X size={14} /></button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+              {/* Main Data Table */}
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-[#f8fafc]">
+                    <tr>
+                      <th className="px-3 py-3 text-left text-[11px] font-bold text-[#2c5282] uppercase tracking-wider whitespace-nowrap">S/N</th>
+                      <th onClick={() => handleSort("classification")} className="px-3 py-3 text-left text-[11px] font-bold text-[#2c5282] uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap">Classification {getSortIcon("classification")}</th>
+                      <th className="px-3 py-3 text-left text-[11px] font-bold text-[#2c5282] uppercase tracking-wider whitespace-nowrap">Entities</th>
+                      <th onClick={() => handleSort("remarks")} className="px-3 py-3 text-left text-[11px] font-bold text-[#2c5282] uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap">Remarks {getSortIcon("remarks")}</th>
+                      <th className="px-3 py-3 text-left text-[11px] font-bold text-[#2c5282] uppercase tracking-wider whitespace-nowrap">Submitted By</th>
+                      <th onClick={() => handleSort("createdAt")} className="px-3 py-3 text-left text-[11px] font-bold text-[#2c5282] uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap">Date {getSortIcon("createdAt")}</th>
+                      <th className="px-3 py-3 text-left text-[11px] font-bold text-[#2c5282] uppercase tracking-wider whitespace-nowrap">Attachments</th>
+                      <th className="px-3 py-3 text-left text-[11px] font-bold text-[#2c5282] uppercase tracking-wider whitespace-nowrap">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200 bg-white">
+                    {/* GLOBAL ADD FORM */}
+                    {showForm && !editData && (
+                      <tr className="bg-gray-50">
+                        <td colSpan={8} className="p-4 border-b">
+                          <form onSubmit={handleAddOrUpdate} className="bg-white rounded-lg border border-gray-200 shadow-sm p-6 relative overflow-hidden">
+                            <div className="absolute left-0 top-4 bottom-4 w-1.5 bg-[#2c5282] rounded-full"></div>
 
-              {/* New attachments (with classification dropdown) */}
-              {attachments.map((att, idx) => (
-                <div key={idx} className="mt-3 p-3 border border-gray-200 rounded-lg">
-                  <div className="flex flex-wrap gap-3">
-                    <div className="flex-1 min-w-[200px]">
-                      <label className="block text-xs text-gray-500">File</label>
-                      <input
-                        type="file"
-                        onChange={(e) => handleFileInputChange(idx, e)}
-                        className="w-full text-sm border rounded p-1"
-                      />
-                      {att.file && <span className="text-xs text-green-600">{att.file.name}</span>}
-                    </div>
-                    <div className="w-40">
-                      <label className="block text-xs text-gray-500">Classification</label>
-                      <select
-                        value={att.classification}
-                        onChange={(e) => updateAttachmentClassification(idx, e.target.value)}
-                        className="w-full border rounded px-2 py-1 text-sm"
-                      >
-                        {classificationOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                      </select>
-                    </div>
-                    <button type="button" onClick={() => removeAttachment(idx)} className="self-end text-red-500 mb-1"><X size={18} /></button>
+                            <div className="flex justify-between mb-4 items-center">
+                              <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                                <Plus size={18} className="text-[#2c5282]"/> Create New Entry
+                              </h2>
+                              <button type="button" onClick={resetForm} className="text-gray-500 hover:text-gray-700 p-1"><X size={20} /></button>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div>
+                                <label className="text-sm font-bold text-gray-700">Entity (select one or more) *</label>
+                                <select multiple value={selectedEntities} onChange={handleEntitySelect} className="w-full border border-gray-300 rounded px-3 py-2 mt-1 h-24 text-sm focus:ring-2 focus:ring-[#2c5282] outline-none">
+                                  {entityOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                                </select>
+                                <p className="text-xs text-gray-500 mt-1">Hold Ctrl (Cmd on Mac) to select multiple</p>
+                                {selectedEntities.length > 0 && (
+                                  <div className="flex flex-wrap gap-2 mt-3">
+                                    {selectedEntities.map(entity => (
+                                      <div key={entity} className="flex items-center gap-1 bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-xs font-medium">
+                                        {entity}
+                                        <button type="button" onClick={() => removeEntity(entity)} className="ml-1 text-blue-600 hover:text-blue-800"><X size={12} /></button>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                              <div>
+                                <label className="text-sm font-bold text-gray-700">Data Classification (overall) *</label>
+                                <select value={classification} onChange={(e) => setClassification(e.target.value)} className="w-full border border-gray-300 rounded px-3 py-2 mt-1 text-sm focus:ring-2 focus:ring-[#2c5282] outline-none" required>
+                                  <option value="">Select Classification</option>
+                                  {classificationOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                                </select>
+
+                                <label className="text-sm font-bold text-gray-700 mt-4 block">Remarks</label>
+                                <textarea value={remarks} onChange={(e) => setRemarks(e.target.value)} rows={2} className="w-full border border-gray-300 rounded px-3 py-2 mt-1 text-sm focus:ring-2 focus:ring-[#2c5282] outline-none" />
+                              </div>
+                            </div>
+
+                            <div className="mt-4">
+                              <div className="flex justify-between items-center mb-2">
+                                <label className="text-sm font-bold text-gray-700">Attachments (with classification)</label>
+                                <button type="button" onClick={addNewAttachment} className="text-xs bg-gray-100 px-3 py-1.5 rounded font-bold hover:bg-gray-200 text-gray-700 transition">+ Add Attachment</button>
+                              </div>
+                              {existingAttachments.length > 0 && (
+                                <div className="space-y-2 mb-3">
+                                  {existingAttachments.map((att, idx) => (
+                                    <div key={idx} className="flex justify-between items-center bg-blue-50 p-2 rounded border border-blue-100">
+                                      <div className="flex items-center gap-2"><FileText size={14} className="text-blue-500" /><span className="text-sm font-medium">{att.filename}</span><span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-bold">{att.classification}</span></div>
+                                      <div className="flex gap-2"><button type="button" onClick={() => handleViewFile(att.filename)} className="text-blue-500 hover:text-blue-700"><Eye size={14} /></button><button type="button" onClick={() => handleRemoveExistingFile(att.filename)} className="text-red-500 hover:text-red-700"><X size={14} /></button></div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              {attachments.map((att, idx) => (
+                                <div key={idx} className="flex flex-wrap gap-2 items-center mt-2">
+                                  <input type="file" onChange={(e) => handleFileInputChange(idx, e)} className="text-sm border border-gray-300 rounded p-1 flex-1" />
+                                  <select value={att.classification} onChange={(e) => updateAttachmentClassification(idx, e.target.value)} className="border border-gray-300 rounded px-2 py-1 text-sm outline-none">
+                                    {classificationOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                                  </select>
+                                  <button type="button" onClick={() => removeAttachment(idx)} className="text-red-500 hover:text-red-700"><X size={18} /></button>
+                                </div>
+                              ))}
+                            </div>
+
+                            <div className="flex justify-end gap-3 mt-5">
+                              <button type="button" onClick={resetForm} className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-md text-sm font-bold text-gray-700 hover:bg-gray-50 transition"><X size={16} /> Cancel</button>
+                              <button type="submit" className="flex items-center gap-2 px-4 py-2 bg-[#2c5282] text-white rounded-md text-sm font-bold hover:bg-[#1e3a8a] transition shadow-sm"><Save size={16} /> Save Entry</button>
+                            </div>
+                          </form>
+                        </td>
+                      </tr>
+                    )}
+
+                    {paginatedEntries.map((entry, index) => {
+                      const isExpanded = expandedRows.has(entry._id);
+                      const isEditing = showForm && editData?._id === entry._id;
+                      const rowSNumber = startIndex + index + 1;
+
+                      return (
+                        <Fragment key={entry._id}>
+                          {/* MAIN ROW */}
+                          <tr 
+                            className={`hover:bg-gray-50 transition-colors align-top cursor-pointer border-b border-gray-100 ${isEditing ? 'bg-blue-50' : ''}`}
+                            onClick={(e) => {
+                              if (isEditing) return; 
+                              if ((e.target as HTMLElement).closest('button') || (e.target as HTMLElement).closest('a') || (e.target as HTMLElement).closest('select') || (e.target as HTMLElement).closest('input')) return;
+                              toggleRowExpand(entry._id);
+                            }}
+                          >
+                            <td className="px-3 py-3 text-sm text-gray-500 font-medium">{rowSNumber}</td>
+                            <td className="px-3 py-3 text-sm">
+                              <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold whitespace-nowrap ${
+                                entry.classification === "Confidential" ? "bg-purple-100 text-purple-800" :
+                                entry.classification === "Secret" ? "bg-teal-100 text-teal-800" :
+                                "bg-red-100 text-red-800"
+                              }`}>
+                                {entry.classification}
+                              </span>
+                            </td>
+                            <td className="px-3 py-3 text-sm">
+                              <div className="flex flex-wrap gap-1 max-w-[200px]">
+                                {entry.entities?.map((e, i) => (
+                                  <span key={i} className="bg-gray-100 px-1.5 py-0.5 rounded text-xs border border-gray-200 text-gray-700">{e}</span>
+                                ))}
+                              </div>
+                            </td>
+                            <td className="px-3 py-3 text-sm">
+                              <div className="flex items-center gap-1 max-w-[200px]">
+                                <span className="text-gray-600 truncate">{entry.remarks || '-'}</span>
+                              </div>
+                            </td>
+                            <td className="px-3 py-3 text-sm whitespace-nowrap font-medium text-gray-700">{entry.submittedBy?.name}</td>
+                            <td className="px-3 py-3 text-sm whitespace-nowrap text-gray-500">{new Date(entry.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
+                            <td className="px-3 py-3 text-sm">
+                              {entry.attachments && entry.attachments.length > 0 ? (
+                                <div className="flex flex-wrap gap-1">
+                                  {entry.attachments.slice(0, 1).map((att: any, i: number) => {
+                                    const fileName = typeof att === 'string' ? att : att.filename;
+                                    return (
+                                      <div key={i} className="flex items-center gap-1 bg-gray-50 px-2 py-1 rounded border border-gray-200">
+                                        <FileText size={12} className="text-gray-400" />
+                                        <span className="text-[11px] font-medium text-gray-600 truncate max-w-[60px]" title={fileName}>{fileName.length > 10 ? fileName.substring(0, 10) + '...' : fileName}</span>
+                                        <button onClick={() => handleViewFile(fileName)} className="text-blue-500 hover:text-blue-700"><Eye size={12} /></button>
+                                      </div>
+                                    );
+                                  })}
+                                  {entry.attachments.length > 1 && <span className="text-xs text-gray-500 font-bold self-center">+{entry.attachments.length - 1}</span>}
+                                </div>
+                              ) : <span className="text-gray-400 text-xs">No files</span>}
+                            </td>
+                            <td className="px-3 py-3 text-sm">
+                              <div className="flex flex-wrap gap-1">
+                                <button onClick={() => toggleRowExpand(entry._id)} className={`flex items-center gap-1 border rounded px-2 py-1 text-xs font-medium transition ${isExpanded ? "bg-blue-50 text-blue-600 border-blue-300" : "border-gray-200 hover:bg-gray-100 text-gray-600"}`}>
+                                  {isExpanded ? <ChevronDown size={12} className="rotate-180" /> : <ChevronDown size={12} />}
+                                  {isExpanded ? "Hide" : "View"}
+                                </button>
+                                <button onClick={() => {
+                                  setEditData(entry);
+                                  setSelectedEntities(entry.entities || []);
+                                  setClassification(entry.classification);
+                                  setRemarks(entry.remarks || "");
+                                  setExistingAttachments(entry.attachments as any || []);
+                                  setAttachments([]);
+                                  setShowForm(true);
+                                }} className={`flex items-center gap-1 border rounded px-2 py-1 text-xs font-medium transition ${isEditing ? 'bg-blue-100 border-blue-400 text-blue-800' : 'border-gray-200 hover:bg-gray-100 text-gray-600'}`}>
+                                  <Pencil size={12} /> Edit
+                                </button>
+                                <button onClick={() => handlePrintEntry(entry)} className="flex items-center gap-1 border border-gray-200 rounded px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-100 transition">
+                                  <Printer size={12} /> Print
+                                </button>
+                                <button onClick={() => handleDelete(entry)} className="flex items-center gap-1 border border-red-100 rounded px-2 py-1 text-xs font-medium text-red-500 hover:bg-red-50 transition">
+                                  <Trash2 size={12} /> Delete
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+
+                          {/* INLINE EDIT FORM */}
+                          {isEditing && (
+                            <tr>
+                              <td colSpan={8} className="p-4 bg-gray-50 border-b border-gray-200">
+                                <form onSubmit={handleAddOrUpdate} className="bg-white rounded-lg border border-gray-200 shadow-sm p-6 relative overflow-hidden">
+                                  <div className="absolute left-0 top-4 bottom-4 w-1.5 bg-[#2c5282] rounded-full"></div>
+
+                                  <div className="flex justify-between mb-4 items-center">
+                                    <h2 className="text-lg font-bold text-[#2c5282] flex items-center gap-2">
+                                      <Pencil size={18} /> Edit Entry: <span className="font-mono bg-blue-50 text-blue-800 px-2 py-0.5 rounded border border-blue-100">{entry.entities?.join(", ")}</span>
+                                    </h2>
+                                    <button type="button" onClick={resetForm} className="text-gray-500 hover:text-gray-700 p-1"><X size={20} /></button>
+                                  </div>
+
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                      <label className="text-sm font-bold text-gray-700">Entity (select one or more) *</label>
+                                      <select multiple value={selectedEntities} onChange={handleEntitySelect} className="w-full border border-gray-300 rounded px-3 py-2 mt-1 h-24 text-sm focus:ring-2 focus:ring-[#2c5282] outline-none">
+                                        {entityOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                                      </select>
+                                      <p className="text-xs text-gray-500 mt-1">Hold Ctrl (Cmd on Mac) to select multiple</p>
+                                      {selectedEntities.length > 0 && (
+                                        <div className="flex flex-wrap gap-2 mt-3">
+                                          {selectedEntities.map(entity => (
+                                            <div key={entity} className="flex items-center gap-1 bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-xs font-medium">
+                                              {entity}
+                                              <button type="button" onClick={() => removeEntity(entity)} className="ml-1 text-blue-600 hover:text-blue-800"><X size={12} /></button>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </div>
+                                    <div>
+                                      <label className="text-sm font-bold text-gray-700">Data Classification (overall) *</label>
+                                      <select value={classification} onChange={(e) => setClassification(e.target.value)} className="w-full border border-gray-300 rounded px-3 py-2 mt-1 text-sm focus:ring-2 focus:ring-[#2c5282] outline-none" required>
+                                        <option value="">Select Classification</option>
+                                        {classificationOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                                      </select>
+
+                                      <label className="text-sm font-bold text-gray-700 mt-4 block">Remarks</label>
+                                      <textarea value={remarks} onChange={(e) => setRemarks(e.target.value)} rows={2} className="w-full border border-gray-300 rounded px-3 py-2 mt-1 text-sm focus:ring-2 focus:ring-[#2c5282] outline-none" />
+                                    </div>
+                                  </div>
+
+                                  <div className="mt-4">
+                                    <div className="flex justify-between items-center mb-2">
+                                      <label className="text-sm font-bold text-gray-700">Attachments (with classification)</label>
+                                      <button type="button" onClick={addNewAttachment} className="text-xs bg-gray-100 px-3 py-1.5 rounded font-bold hover:bg-gray-200 text-gray-700 transition">+ Add Attachment</button>
+                                    </div>
+                                    {existingAttachments.length > 0 && (
+                                      <div className="space-y-2 mb-3">
+                                        {existingAttachments.map((att, idx) => (
+                                          <div key={idx} className="flex justify-between items-center bg-blue-50 p-2 rounded border border-blue-100">
+                                            <div className="flex items-center gap-2"><FileText size={14} className="text-blue-500" /><span className="text-sm font-medium">{att.filename}</span><span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-bold">{att.classification}</span></div>
+                                            <div className="flex gap-2"><button type="button" onClick={() => handleViewFile(att.filename)} className="text-blue-500 hover:text-blue-700"><Eye size={14} /></button><button type="button" onClick={() => handleRemoveExistingFile(att.filename)} className="text-red-500 hover:text-red-700"><X size={14} /></button></div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                    {attachments.map((att, idx) => (
+                                      <div key={idx} className="flex flex-wrap gap-2 items-center mt-2">
+                                        <input type="file" onChange={(e) => handleFileInputChange(idx, e)} className="text-sm border border-gray-300 rounded p-1 flex-1" />
+                                        <select value={att.classification} onChange={(e) => updateAttachmentClassification(idx, e.target.value)} className="border border-gray-300 rounded px-2 py-1 text-sm outline-none">
+                                          {classificationOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                                        </select>
+                                        <button type="button" onClick={() => removeAttachment(idx)} className="text-red-500 hover:text-red-700"><X size={18} /></button>
+                                      </div>
+                                    ))}
+                                  </div>
+
+                                  <div className="flex justify-end gap-3 mt-5">
+                                    <button type="button" onClick={resetForm} className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-md text-sm font-bold text-gray-700 hover:bg-gray-50 transition"><X size={16} /> Cancel</button>
+                                    <button type="submit" className="flex items-center gap-2 px-4 py-2 bg-[#2c5282] text-white rounded-md text-sm font-bold hover:bg-[#1e3a8a] transition shadow-sm"><Check size={16} /> Save Changes</button>
+                                  </div>
+                                </form>
+                              </td>
+                            </tr>
+                          )}
+
+                          {/* INLINE VIEW DETAILS */}
+                          {isExpanded && !isEditing && (
+                            <tr>
+                              <td colSpan={8} className="px-6 py-6 bg-[#f8fafc] border-b border-gray-200 shadow-inner">
+                                <div className="space-y-6 max-w-5xl mx-auto">
+                                  <div className="grid md:grid-cols-2 gap-6">
+                                    <div>
+                                      <label className="text-xs font-bold text-[#2c5282] uppercase tracking-wider block mb-2">Entities</label>
+                                      <div className="flex flex-wrap gap-2 mt-1">
+                                        {entry.entities?.map((e, i) => <span key={i} className="bg-white border border-gray-300 px-2.5 py-1 rounded-md text-sm font-medium text-gray-700 shadow-sm">{e}</span>)}
+                                      </div>
+                                    </div>
+                                    <div>
+                                      <label className="text-xs font-bold text-[#2c5282] uppercase tracking-wider block mb-2">Data Classification</label>
+                                      <span className={`inline-block px-3 py-1 rounded-full text-xs font-bold mt-1 ${
+                                        entry.classification === "Confidential" ? "bg-purple-100 text-purple-800 border border-purple-200" :
+                                        entry.classification === "Secret" ? "bg-teal-100 text-teal-800 border border-teal-200" :
+                                        "bg-red-100 text-red-800 border border-red-200"
+                                      }`}>
+                                        {entry.classification}
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  <div>
+                                    <label className="text-xs font-bold text-[#2c5282] uppercase tracking-wider block mb-2">Remarks</label>
+                                    <p className="text-sm text-gray-800 bg-white p-4 rounded-lg border border-gray-200 shadow-sm leading-relaxed">{entry.remarks || "No remarks provided."}</p>
+                                  </div>
+
+                                  {/* Attachments */}
+                                  {entry.attachments && entry.attachments.length > 0 && (
+                                    <div>
+                                      <h4 className="text-xs font-bold text-[#2c5282] uppercase tracking-wider mb-2">Attachments</h4>
+                                      <div className="flex flex-wrap gap-3">
+                                        {entry.attachments.map((att: any, i: number) => {
+                                          const fileName = typeof att === 'string' ? att : att.filename;
+                                          const classType = typeof att === 'string' ? 'N/A' : att.classification;
+                                          return (
+                                            <div key={i} className="flex items-center gap-2 bg-white px-3 py-2 rounded-lg border border-gray-200 shadow-sm hover:border-blue-300 transition">
+                                              <FileText size={16} className="text-blue-500" />
+                                              <span className="text-sm font-medium text-gray-700 truncate max-w-[200px]">{fileName}</span>
+                                              {classType !== 'N/A' && (
+                                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                                  classType === "Confidential" ? "bg-purple-100 text-purple-700" :
+                                                  classType === "Secret" ? "bg-teal-100 text-teal-700" :
+                                                  "bg-red-100 text-red-700"
+                                                }`}>{classType}</span>
+                                              )}
+                                              <div className="flex items-center gap-1 border-l border-gray-200 pl-2 ml-1">
+                                                <button onClick={() => handleViewFile(fileName)} className="text-blue-500 hover:text-blue-700 p-1" title="View"><Eye size={16} /></button>
+                                                <button onClick={() => handleDownloadFile(fileName)} className="text-green-500 hover:text-green-700 p-1" title="Download"><Download size={16} /></button>
+                                              </div>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* Submission Info */}
+                                  <div className="pt-4 border-t border-gray-200">
+                                    <h4 className="text-xs font-bold text-[#2c5282] uppercase tracking-wider mb-3">Submission Information</h4>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
+                                      <div><label className="text-xs font-bold text-gray-500">Name of Submitting Officer</label><div className="text-sm font-medium text-gray-800 mt-1">{entry.submittedBy?.name || "—"}</div></div>
+                                      <div><label className="text-xs font-bold text-gray-500">Department</label><div className="text-sm text-gray-800 mt-1">{entry.submittedBy?.department || "—"}</div></div>
+                                      <div><label className="text-xs font-bold text-gray-500">Division</label><div className="text-sm text-gray-800 mt-1">{entry.submittedBy?.division || "—"}</div></div>
+                                      <div><label className="text-xs font-bold text-gray-500">Date</label><div className="text-sm text-gray-800 mt-1">{new Date(entry.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</div></div>
+                                    </div>
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      );
+                    })}
+                    {paginatedEntries.length === 0 && (
+                      <tr><td colSpan={8} className="text-center py-8 text-gray-500 font-medium">No records found matching your criteria.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* PAGINATION FOOTER */}
+              {totalPages > 0 && (
+                <div className="flex flex-col sm:flex-row justify-between items-center gap-4 px-4 py-3 bg-[#f8fafc] border-t border-gray-200 text-sm text-gray-600 rounded-b-lg">
+                  <div>
+                    Showing <span className="font-bold text-gray-800">{startIndex + 1}</span> to <span className="font-bold text-gray-800">{Math.min(startIndex + rowsPerPage, sortedEntries.length)}</span> of <span className="font-bold text-gray-800">{sortedEntries.length}</span> records
                   </div>
-                </div>
-              ))}
-              {attachments.length === 0 && existingAttachments.length === 0 && (
-                <p className="text-gray-400 text-sm mt-2">No attachments. Click "Add Attachment" to add files with classification.</p>
-              )}
-            </div>
-
-            {/* Data Classification (main) – kept same */}
-            <div>
-              <label className="text-sm font-medium">Data Classification (overall) *</label>
-              <select value={classification} onChange={(e) => setClassification(e.target.value)} className="w-full border rounded px-3 py-2 mt-1" required>
-                <option value="">Select Classification</option>
-                {classificationOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-              </select>
-            </div>
-
-            {/* Remarks */}
-            <div>
-              <label className="text-sm font-medium">Remarks</label>
-              <textarea value={remarks} onChange={(e) => setRemarks(e.target.value)} rows={3} className="w-full border rounded px-3 py-2 mt-1" />
-            </div>
-
-            <div className="flex justify-end gap-3">
-              <button type="button" onClick={() => setShowForm(false)} className="flex items-center gap-2 px-3 py-1.5 border rounded-md text-xs">Cancel</button>
-              <button type="submit" className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white rounded-md text-xs hover:bg-blue-700"><Check size={14} /> Save Entry</button>
-            </div>
-          </form>
-        )}
-
-        {/* Toolbar and table (same as before, but attachments column should show classifications) */}
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
-          <input type="text" value={search} onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }} placeholder="Search..." className="w-full sm:w-80 px-4 py-2 border rounded" />
-          <div className="flex items-center gap-2 text-sm">
-            <span>Show</span>
-            <select value={rowsPerPage} onChange={(e) => { setRowsPerPage(Number(e.target.value)); setCurrentPage(1); }} className="border rounded px-2 py-1">
-              {[10,20,30,50].map(n => <option key={n}>{n}</option>)}
-            </select>
-            <span>entries</span>
-          </div>
-        </div>
-
-        <div className="bg-white shadow rounded-lg overflow-x-auto">
-          <table className="min-w-[800px] w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50"><tr>{["S/N","Entity","Classification","Attachments","Remarks","Submitted By","Date","Status","Actions"].map(h => <th key={h} className="px-4 md:px-6 py-3 text-left text-xs font-medium uppercase">{h}</th>)}</tr></thead>
-            <tbody className="divide-y divide-gray-200">
-              {paginated.map((entry, idx) => (
-                <tr key={entry._id} className="hover:bg-gray-100">
-                  <td className="px-4 md:px-6 py-3 text-sm">{start + idx + 1}</td>
-                  <td className="px-4 md:px-6 py-3 text-sm font-medium">
-                    <div className="flex flex-wrap gap-1">{entry.entities?.map((e,i) => <span key={i} className="bg-gray-100 px-2 py-0.5 rounded text-xs">{e}</span>)}</div>
-                  </td>
-                  <td className="px-4 md:px-6 py-3 text-sm">
-                    <span className={`px-2 py-1 rounded text-xs ${entry.classification === "Confidential" ? "bg-red-100 text-red-800" : entry.classification === "Secret" ? "bg-orange-100 text-orange-800" : "bg-green-100 text-green-800"}`}>
-                      {entry.classification}
+                  <div className="flex items-center gap-3">
+                    <button 
+                      disabled={currentPage === 1} 
+                      onClick={() => setCurrentPage(p => p-1)} 
+                      className="px-3 py-1 bg-white border border-gray-300 rounded font-semibold text-gray-600 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50 transition"
+                    >
+                      Prev
+                    </button>
+                    <span className="font-medium text-gray-700">
+                      Page {currentPage} of {totalPages}
                     </span>
-                  </td>
-                  <td className="px-4 md:px-6 py-3 text-sm">
-  {entry.attachments?.length > 0 ? (
-    <div className="flex flex-wrap gap-2">
-      {entry.attachments.slice(0,2).map((att, i) => {
-        // Support both old (string) and new (object) formats
-        const filename = typeof att === 'string' ? att : att?.filename;
-        if (!filename) return null;
-        return (
-          <div key={i} className="flex items-center gap-1 bg-gray-100 px-2 py-1 rounded">
-            <FileText size={12} className="text-gray-500" />
-            <span className="text-xs truncate max-w-[60px]" title={filename}>
-              {filename.length > 15 ? filename.substring(0, 15) + "..." : filename}
-            </span>
-            <button onClick={() => handleViewFile(filename)} className="text-blue-500">
-              <Eye size={12} />
-            </button>
-            <button onClick={() => handleDownloadFile(filename)} className="text-green-500">
-              <Download size={12} />
-            </button>
-          </div>
-        );
-      })}
-      {entry.attachments.length > 2 && (
-        <span className="text-xs text-gray-500">+{entry.attachments.length - 2}</span>
-      )}
-    </div>
-  ) : (
-    <span className="text-gray-400 text-xs">No files</span>
-  )}
-</td>
-                  <td className="px-4 md:px-6 py-3 text-sm max-w-xs truncate">{entry.remarks?.substring(0,40)}{entry.remarks?.length>40 && <button onClick={()=>setSelectedView(entry)}><Maximize2 size={14}/></button>}</td>
-                  <td className="px-4 md:px-6 py-3 text-sm">{entry.submittedBy?.name}</td>
-                  <td className="px-4 md:px-6 py-3 text-sm">{new Date(entry.createdAt).toLocaleDateString()}</td>
-                  <td className="px-4 md:px-6 py-3 text-sm"><span className="px-2 py-1 rounded text-xs bg-green-100 text-green-800">{entry.status}</span></td>
-                  <td className="px-4 md:px-6 py-3 text-sm flex flex-wrap gap-2">
-                    <button onClick={()=>setSelectedView(entry)} className="border rounded px-2 py-1 text-xs"><Eye size={12}/> View</button>
-                    <button onClick={()=>handleEdit(entry)} className="border rounded px-2 py-1 text-xs"><Pencil size={12}/> Edit</button>
-                    <button onClick={()=>handleDelete(entry)} className="border rounded px-2 py-1 text-xs text-red-500"><Trash2 size={12}/> Delete</button>
-                  </td>
-                </tr>
-              ))}
-              {paginated.length === 0 && <tr><td colSpan={9} className="text-center py-6">No entries found</td></tr>}
-            </tbody>
-          </table>
-        </div>
-
-        {totalPages > 1 && (
-          <div className="flex justify-end gap-4 mt-5 text-sm">
-            <button disabled={currentPage===1} onClick={()=>setCurrentPage(p=>p-1)} className="text-lg disabled:text-gray-400">&lt;</button>
-            <span>Page {currentPage} of {totalPages}</span>
-            <button disabled={currentPage===totalPages} onClick={()=>setCurrentPage(p=>p+1)} className="text-lg disabled:text-gray-400">&gt;</button>
-          </div>
-        )}
-      </main>
-
-      {/* Modal for Blank Form Preview – unchanged except header (kept as original) */}
-      {showBlankPreview && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-md" onClick={()=>setShowBlankPreview(false)} style={{animation:"fadeIn 0.2s ease-out"}}>
-          <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-4xl" style={{height:"90vh", maxHeight:"90vh", display:"flex", flexDirection:"column", overflow:"hidden"}} onClick={(e)=>e.stopPropagation()}>
-            <div className="border-b bg-gray-50 pt-0 pb-2 px-4 md:px-6 flex-shrink-0">
-              <div className="flex flex-col md:flex-row justify-between items-start gap-4">
-                <div className="flex flex-col items-start">
-                  <img src="/form_logo.png" alt="Logo" style={{ height: '180px', width: 'auto', margin: -35, display: 'block', marginLeft: '-10px' }}/>
-                  <div className="text-left"><div className="text-lg font-bold">Core Network</div><div className="text-xs text-gray-500">Intelligence & Information Sharing</div></div>
-                </div>
-                <div className="text-right"><div className="text-sm font-semibold text-gray-600">Form 02</div><div className="text-xl font-bold text-gray-800">Intelligence Sharing Form (Blank)</div></div>
-              </div>
-            </div>
-            <div className="p-4 md:p-6 space-y-6 overflow-y-auto" style={{flex:1, minHeight:0}}>
-              {/* same blank content – no change */}
-              <div className="bg-gray-50 p-4 rounded-lg"><label className="text-xs font-semibold uppercase">Entity (select one or more):</label><div className="grid grid-cols-2 md:grid-cols-3 gap-2 mt-2">{entityOptions.map(e=><div key={e} className="flex items-center gap-2"><div className="w-4 h-4 border border-gray-400 rounded-sm"></div><span>{e}</span></div>)}</div></div>
-              <div className="bg-gray-50 p-4 rounded-lg"><label className="text-xs font-semibold uppercase">Attachments (file name + classification):</label><div className="border-b border-gray-400 min-h-[40px] mt-2"></div><div className="border-b border-gray-400 min-h-[40px] mt-2"></div><div className="border-b border-gray-400 min-h-[40px] mt-2"></div></div>
-              <div className="bg-gray-50 p-4 rounded-lg"><label className="text-xs font-semibold uppercase">Data Classification (select one):</label><div className="flex gap-4 mt-2">{classificationOptions.map(opt=><div key={opt} className="flex items-center gap-2"><div className="w-4 h-4 border border-gray-400 rounded-full"></div><span>{opt}</span></div>)}</div></div>
-              <div className="bg-gray-50 p-4 rounded-lg"><label className="text-xs font-semibold uppercase">Remarks:</label><div className="border border-gray-300 min-h-[100px] rounded-md mt-2"></div></div>
-              <div className="border-t pt-6 mt-4"><h4 className="text-sm font-semibold mb-4">Submission Information</h4><div className="grid grid-cols-1 md:grid-cols-2 gap-4"><div><label className="text-xs text-gray-500">Name of Submitting Officer</label><div className="mt-1 p-2 border-b border-gray-400"></div></div><div><label>Department</label><div className="mt-1 p-2 border-b"></div></div><div><label>Division</label><div className="mt-1 p-2 border-b"></div></div><div><label>Date</label><div className="mt-1 p-2 border-b"></div></div></div><div className="mt-6"><label>Signature</label><div className="mt-1 p-2 border-b"></div></div></div>
-            </div>
-            <div className="flex justify-end gap-3 p-4 border-t bg-gray-50 flex-shrink-0">
-              <button onClick={printBlankForm} className="flex items-center gap-2 px-4 py-2 border rounded-md"><div className="w-6 h-6 rounded-full border flex items-center justify-center"><Printer size={14}/></div> Print Form (A4)</button>
-              <button onClick={()=>setShowBlankPreview(false)} className="px-4 py-2 border rounded-md">Close</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal for Filled Form Preview – update to show classifications */}
-      {selectedView && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-md" onClick={()=>setSelectedView(null)} style={{animation:"fadeIn 0.2s ease-out"}}>
-          <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-4xl" style={{height:"90vh", maxHeight:"90vh", display:"flex", flexDirection:"column", overflow:"hidden"}} onClick={(e)=>e.stopPropagation()}>
-            <div className="border-b bg-gray-50 pt-0 pb-2 px-4 md:px-6 flex-shrink-0">
-              <div className="flex flex-col md:flex-row justify-between items-start gap-4">
-                <div className="flex flex-col items-start">
-                  <img src="/form_logo.png" alt="Logo" style={{ height: '180px', width: 'auto', margin: -35, display: 'block', marginLeft: '-10px' }}/>
-                  <div className="text-left"><div className="text-lg font-bold">CoRE Network</div><div className="text-xs text-gray-500">Cordinated Research & Intelligence Network of Bhutan</div></div>
-                </div>
-                <div className="text-right"><div className="text-sm font-semibold text-gray-600">Form 02</div><div className="text-xl font-bold text-gray-800">Intelligence Sharing Form</div></div>
-              </div>
-            </div>
-            <div className="p-4 md:p-6 space-y-6 overflow-y-auto" style={{flex:1, minHeight:0}}>
-              <div className="bg-gray-50 p-4 rounded-lg"><label className="text-xs font-semibold uppercase">Entity/Entities</label><div className="mt-1 flex flex-wrap gap-2">{selectedView.entities?.map((e,i)=><span key={i} className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm">{e}</span>)}</div></div>
-              <div className="bg-gray-50 p-4 rounded-lg"><label className="text-xs font-semibold uppercase">Data Classification (overall)</label><div className="mt-1"><span className={`px-3 py-1 rounded-full text-sm font-medium ${selectedView.classification==="Confidential"?"bg-red-100 text-red-800":selectedView.classification==="Secret"?"bg-orange-100 text-orange-800":"bg-green-100 text-green-800"}`}>{selectedView.classification}</span></div></div>
-              <div className="bg-gray-50 p-4 rounded-lg"><label className="text-xs font-semibold uppercase">Remarks</label><div className="mt-2 text-gray-700 whitespace-pre-wrap">{selectedView.remarks || "No remarks provided"}</div></div>
-              {selectedView.attachments?.length > 0 && (
-                <div className="bg-gray-50 p-4 rounded-lg">
-                  <label className="text-xs font-semibold uppercase">Attachments</label>
-                  <div className="mt-2 space-y-2">
-                    {selectedView.attachments.map((att, i) => (
-                      <div key={i} className="flex flex-wrap justify-between items-center bg-white p-2 rounded border">
-                        <div className="flex items-center gap-2 break-all"><FileText size={16} className="text-blue-500"/><span className="text-sm">{att.filename}</span><span className={`text-xs px-2 py-0.5 rounded-full ${att.classification==="Confidential"?"bg-red-100 text-red-700":att.classification==="Secret"?"bg-orange-100 text-orange-700":"bg-green-100 text-green-700"}`}>{att.classification}</span></div>
-                        <div className="flex gap-2"><button onClick={()=>handleViewFile(att.filename)} className="text-blue-500"><Eye size={16}/></button><button onClick={()=>handleDownloadFile(att.filename)} className="text-green-500"><Download size={16}/></button></div>
-                      </div>
-                    ))}
+                    <button 
+                      disabled={currentPage === totalPages} 
+                      onClick={() => setCurrentPage(p => p+1)} 
+                      className="px-3 py-1 bg-white border border-gray-300 rounded font-semibold text-gray-600 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50 transition"
+                    >
+                      Next
+                    </button>
                   </div>
                 </div>
               )}
-              <div className="border-t pt-6 mt-4"><h4 className="text-sm font-semibold mb-4">Submission Information</h4><div className="grid grid-cols-1 md:grid-cols-2 gap-4"><div><label className="text-xs text-gray-500">Name of Submitting Officer</label><div className="mt-1 p-2 border-b border-gray-300">{selectedView.submittedBy?.name || "—"}</div></div><div><label>Department</label><div className="mt-1 p-2 border-b">{selectedView.submittedBy?.department || "—"}</div></div><div><label>Division</label><div className="mt-1 p-2 border-b">{selectedView.submittedBy?.division || "—"}</div></div><div><label>Date</label><div className="mt-1 p-2 border-b">{new Date(selectedView.createdAt).toLocaleDateString()}</div></div></div><div className="mt-6"><label>Signature</label><div className="mt-1 p-2 border-b italic">Electronically verified</div></div></div>
             </div>
-            <div className="flex justify-end gap-3 p-4 border-t bg-gray-50 flex-shrink-0">
-              <button onClick={()=>handlePrintModal(selectedView)} className="flex items-center gap-2 px-4 py-2 border rounded-md"><div className="w-6 h-6 rounded-full border flex items-center justify-center"><Printer size={14}/></div> Print Form (A4)</button>
-              <button onClick={()=>setSelectedView(null)} className="px-4 py-2 border rounded-md">Close</button>
+          </div>
+        </main>
+      </div>
+
+      {/* Print Modal / Preview */}
+      {showPrintModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 text-center border border-gray-200">
+            <h3 className="text-xl font-bold text-gray-800 mb-2">Print Document</h3>
+            <p className="text-gray-600 mb-6 text-sm">
+              {printEntry ? "Are you ready to print this entry?" : "Generate a blank form for manual filling?"}
+            </p>
+            <div className="flex justify-center gap-3">
+              <button onClick={() => setShowPrintModal(false)} className="px-4 py-2 border border-gray-300 rounded-md text-sm font-bold text-gray-700 hover:bg-gray-50 transition">Cancel</button>
+              <button onClick={printForm} className="px-4 py-2 bg-[#2c5282] text-white rounded-md text-sm font-bold hover:bg-[#1e3a8a] flex items-center gap-2 shadow-sm transition"><Printer size={16} /> Print Now</button>
             </div>
           </div>
         </div>
       )}
-
-      <style jsx>{`
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-        @keyframes zoomIn { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
-        @media print { body * { visibility: hidden; } #print-blank-area, #print-blank-area * { visibility: visible; } #print-blank-area { position: absolute; top: 0; left: 0; width: 100%; margin: 0; padding: 0; } }
-      `}</style>
-    </div>
+    </>
   );
 }

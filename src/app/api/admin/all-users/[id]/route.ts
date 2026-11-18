@@ -18,7 +18,7 @@ export async function GET(
 
     const { id } = await params;
     const client = await clientPromise;
-    const db = client.db("referral_db");
+    const db = client.db("corenetwork_db");
 
     if (!ObjectId.isValid(id)) {
       return NextResponse.json({ error: "Invalid user ID" }, { status: 400 });
@@ -86,7 +86,7 @@ export async function PUT(
 
     const { id } = await params;
     const client = await clientPromise;
-    const db = client.db("referral_db");
+    const db = client.db("corenetwork_db");
     const body = await req.json();
 
     if (!ObjectId.isValid(id)) {

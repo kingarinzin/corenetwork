@@ -9,7 +9,7 @@ export async function getUserFromToken(req: Request) {
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET!) as { id: string };
     const client = await clientPromise;
-    const db = client.db("referral_db");
+    const db = client.db("corenetwork_db");
     const user = await db.collection("users").findOne({ _id: new ObjectId(decoded.id) });
     return user;
   } catch {

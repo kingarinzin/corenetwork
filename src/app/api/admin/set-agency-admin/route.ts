@@ -21,7 +21,7 @@ export async function POST(req: Request) {
     }
 
     const client = await clientPromise;
-    const db = client.db("referral_db");
+    const db = client.db("corenetwork_db");
 
     // 3. Get user to update
     const userToUpdate = await db.collection("users").findOne({

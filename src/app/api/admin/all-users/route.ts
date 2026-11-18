@@ -14,7 +14,7 @@ export async function GET(req: Request) {
     }
 
     const client = await clientPromise;
-    const db = client.db("referral_db");
+    const db = client.db("corenetwork_db");
 
     let filter = {};
     if (user.isAdmin) {

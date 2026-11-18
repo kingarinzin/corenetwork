@@ -26,7 +26,7 @@ export async function POST(req: Request) {
     }
 
     const client = await clientPromise;
-    const db = client.db("referral_db");
+    const db = client.db("corenetwork_db");
 
     const result = await db.collection("users").updateOne(
       { _id: new ObjectId(userId) },

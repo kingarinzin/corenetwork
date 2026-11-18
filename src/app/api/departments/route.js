@@ -19,7 +19,7 @@ async function agencyExists(db, agencyId) {
 export async function GET() {
   try {
     const client = await clientPromise;
-    const db = client.db("referral_db");
+    const db = client.db("corenetwork_db");
 
     const departments = await db.collection("departments").aggregate([
       {

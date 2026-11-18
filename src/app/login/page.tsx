@@ -30,10 +30,13 @@ function LoginForm() {
         return;
       }
 
-      // Store authentication data
+      // Store authentication data in LocalStorage
       localStorage.setItem("token", data.token);
       localStorage.setItem("isAdmin", data.isAdmin ? "true" : "false");
       localStorage.setItem("isAgencyAdmin", data.isAgencyAdmin ? "true" : "false");
+
+      // Store token in a Cookie so Next.js API routes can read it
+      document.cookie = `token=${data.token}; path=/; max-age=28800; SameSite=Lax`;
 
       // Redirect logic
       if (returnTo) {

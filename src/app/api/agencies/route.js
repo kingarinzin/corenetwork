@@ -4,7 +4,7 @@ import { ObjectId } from "mongodb";
 export async function GET() {
   try {
     const client = await clientPromise;
-    const db = client.db("referral_db");
+    const db = client.db("corenetwork_db");
     const agencies = await db.collection("agencies").find({}).toArray();
     return new Response(JSON.stringify(agencies), { status: 200 });
   } catch (error) {
@@ -16,7 +16,7 @@ export async function GET() {
 export async function POST(req) {
   try {
     const client = await clientPromise;
-    const db = client.db("referral_db");
+    const db = client.db("corenetwork_db");
     const { name, remarks } = await req.json();
     if (!name) {
       return new Response(JSON.stringify({ error: "Name required" }), { status: 400 });
@@ -36,7 +36,7 @@ export async function POST(req) {
 export async function PUT(req) {
   try {
     const client = await clientPromise;
-    const db = client.db("referral_db");
+    const db = client.db("corenetwork_db");
     const { _id, name, remarks } = await req.json();
     if (!_id || !name) {
       return new Response(JSON.stringify({ error: "ID and name required" }), { status: 400 });
@@ -55,7 +55,7 @@ export async function PUT(req) {
 export async function DELETE(req) {
   try {
     const client = await clientPromise;
-    const db = client.db("referral_db");
+    const db = client.db("corenetwork_db");
     const { _id } = await req.json();
     if (!_id) {
       return new Response(JSON.stringify({ error: "ID required" }), { status: 400 });

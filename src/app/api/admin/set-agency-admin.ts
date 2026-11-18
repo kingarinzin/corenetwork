@@ -21,7 +21,7 @@ export async function POST(req: Request) {
     }
 
     const client = await clientPromise;
-    const db = client.db("referral_db");  // ensure correct database
+    const db = client.db("corenetwork_db");  // ensure correct database
 
     // 3. Get user to promote
     const userToPromote = await db.collection("users").findOne({

@@ -10,6 +10,8 @@ import {
   LogOut,
   ChevronDown,
   ChevronRight,
+  FileText,
+  Search,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -167,14 +169,15 @@ export default function Sidebar() {
     router.push("/login");
   };
 
+  // UPDATED: Active state now uses light blue instead of black
   const navButtonClass = (isActive: boolean) =>
-    `w-full flex items-center gap-3 px-4 py-3 rounded-md transition ${
-      isActive ? "bg-black text-white" : "text-black hover:bg-gray-100"
+    `w-full flex items-center gap-3 px-4 py-3 rounded-md transition font-medium ${
+      isActive ? "bg-blue-100 text-blue-700" : "text-gray-700 hover:bg-gray-100"
     }`;
 
   const navSubButtonClass = (isActive: boolean) =>
-    `w-full text-left px-4 py-2 rounded-md transition ${
-      isActive ? "bg-black text-white" : "text-gray-700 hover:bg-gray-100"
+    `w-full text-left px-4 py-2 rounded-md transition font-medium ${
+      isActive ? "bg-blue-100 text-blue-700" : "text-gray-700 hover:bg-gray-100"
     }`;
 
   return (
@@ -380,17 +383,19 @@ export default function Sidebar() {
 
              <button
               onClick={() => router.push("/admin/core-network")}
-              className={navButtonClass(pathname.startsWith("/admin/core-network"))}
+              // FIXED: Changed to exact match to prevent double highlighting
+              className={navButtonClass(pathname === "/admin/core-network")}
             >
-              <Shield size={18} />
+              <FileText size={18} />
               <span className="flex-1 text-left">Intelligence Report</span>
             </button>
 
             <button
               onClick={() => router.push("/admin/core-network/intel-requesting")}
-              className={navButtonClass(pathname.startsWith("/admin/core-network/intel-requesting"))}
+              // FIXED: Changed to exact match to prevent double highlighting
+              className={navButtonClass(pathname === "/admin/core-network/intel-requesting")}
             >
-              <Shield size={18} />
+              <Search size={18} />
               <span className="flex-1 text-left">Intelligence Request</span>
             </button>
             
@@ -451,14 +456,14 @@ export default function Sidebar() {
       <div className="px-4 py-4">
         <button
           onClick={handleLogout}
-          className="w-full flex items-center gap-3 px-4 py-3 rounded-md text-black hover:bg-gray-100"
+          className="w-full flex items-center gap-3 px-4 py-3 rounded-md text-black hover:bg-gray-100 transition"
         >
           <LogOut size={18} className="text-red-500" />
-          <span className="text-red-500">Logout</span>
+          <span className="text-red-500 font-medium">Logout</span>
         </button>
       </div>
 
-      <div className="px-4 py-4">
+      <div className="px-4 py-4 text-xs text-gray-500 font-medium">
         © {new Date().getFullYear()} ANTI-CORRUPTION COMMISSION
       </div>
     </aside>

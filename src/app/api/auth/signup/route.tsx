@@ -36,7 +36,7 @@ export async function POST(req: Request) {
     }
 
     const client = await clientPromise;
-    const db = client.db("referral_db");
+    const db = client.db("corenetwork_db");
     const users = db.collection("users");
 
     const existingUser = await users.findOne({ email });

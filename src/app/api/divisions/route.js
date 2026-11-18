@@ -6,7 +6,7 @@ import { ObjectId } from "mongodb";
 
 async function ensureMongoose() {
   // Force use referral_db
-  const targetDbName = "referral_db";
+  const targetDbName = "corenetwork_db";
   if (mongoose.connection.readyState && mongoose.connection.name !== targetDbName) {
     await mongoose.disconnect();
   }
@@ -21,7 +21,7 @@ export async function GET() {
   try {
     await ensureMongoose();
     const client = await clientPromise;
-    const db = client.db("referral_db");  // hardcoded
+    const db = client.db("corenetwork_db");  // hardcoded
 
     const divisions = await db.collection("divisions").aggregate([
       {
@@ -114,7 +114,7 @@ export async function POST(request) {
     }
 
     const client = await clientPromise;
-    const db = client.db("referral_db"); // hardcoded
+    const db = client.db("corenetwork_db"); // hardcoded
     const department = await db.collection("departments").findOne({ _id: deptObjectId });
 
     if (!department) {
