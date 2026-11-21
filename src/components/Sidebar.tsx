@@ -382,9 +382,9 @@ export default function Sidebar() {
             */}
 
              <button
-              onClick={() => router.push("/admin/core-network")}
+              onClick={() => router.push("/admin/core-network/intel-reporting")}
               // FIXED: Changed to exact match to prevent double highlighting
-              className={navButtonClass(pathname === "/admin/core-network")}
+              className={navButtonClass(pathname === "/admin/core-network/intel-reporting")}
             >
               <FileText size={18} />
               <span className="flex-1 text-left">Intelligence Report</span>

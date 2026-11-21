@@ -5,6 +5,21 @@ import { writeFile, mkdir, unlink } from "fs/promises";
 import path from "path";
 import { existsSync } from "fs";
 
+// SECURITY: Server-side validation (Never trust the frontend)
+const ALLOWED_EXTENSIONS = ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.png', '.jpg', '.jpeg', '.txt'];
+
+const isValidFile = (fileName) => {
+  const ext = path.extname(fileName).toLowerCase();
+  return ALLOWED_EXTENSIONS.includes(ext);
+};
+
+// SECURITY: Prevents Path Traversal by ignoring user filename
+const sanitizeFileName = (fileName) => {
+  const ext = path.extname(fileName).toLowerCase();
+  const randomString = Math.random().toString(36).substring(2, 15);
+  return `${Date.now()}-${randomString}${ext}`;
+};
+
 export async function GET() {
   await dbConnect();
   const requests = await IntelRequest.find().sort({ createdAt: -1 });
@@ -17,7 +32,8 @@ export async function POST(req) {
     const formData = await req.formData();
 
     const entities = JSON.parse(formData.get("entities") || "[]");
-    const purpose = formData.get("purpose");
+    // SECURITY: These are CIPHERTEXT strings. The server does not decrypt them.
+    const purpose = formData.get("purpose"); 
     const urgency = formData.get("urgency");
     const remarks = formData.get("remarks") || "";
     const requestingOfficer = formData.get("requestingOfficer");
@@ -37,13 +53,21 @@ export async function POST(req) {
     for (let i = 0; i < newAttachmentsMeta.length; i++) {
       const file = formData.get(`attachment_${i}`);
       if (file instanceof File) {
+        // SECURITY CHECK
+        if (!isValidFile(file.name)) {
+          return NextResponse.json({ error: `Invalid file type: ${file.name}` }, { status: 400 });
+        }
+
         const bytes = await file.arrayBuffer();
         const buffer = Buffer.from(bytes);
-        const uniqueName = `${Date.now()}-${file.name}`;
-        const filePath = path.join(uploadDir, uniqueName);
+        
+        // Use sanitized name
+        const safeName = sanitizeFileName(file.name);
+        const filePath = path.join(uploadDir, safeName);
+        
         await writeFile(filePath, buffer);
         newAttachments.push({
-          filename: uniqueName,
+          filename: safeName,
           classification: newAttachmentsMeta[i].classification
         });
       }
@@ -51,9 +75,9 @@ export async function POST(req) {
 
     const newRequest = await IntelRequest.create({
       entities,
-      purpose,
+      purpose, // Stores ciphertext
       urgency,
-      remarks,
+      remarks, // Stores ciphertext
       attachments: newAttachments,
       requestingOfficer: {
         name: requestingOfficer,
@@ -78,6 +102,7 @@ export async function PUT(req) {
 
     const id = formData.get("_id");
     const entities = JSON.parse(formData.get("entities") || "[]");
+    // SECURITY: These are CIPHERTEXT strings.
     const purpose = formData.get("purpose");
     const urgency = formData.get("urgency");
     const remarks = formData.get("remarks") || "";
@@ -99,13 +124,19 @@ export async function PUT(req) {
     for (let i = 0; i < newAttachmentsMeta.length; i++) {
       const file = formData.get(`attachment_${i}`);
       if (file instanceof File) {
+        if (!isValidFile(file.name)) {
+          return NextResponse.json({ error: `Invalid file type: ${file.name}` }, { status: 400 });
+        }
+
         const bytes = await file.arrayBuffer();
         const buffer = Buffer.from(bytes);
-        const uniqueName = `${Date.now()}-${file.name}`;
-        const filePath = path.join(uploadDir, uniqueName);
+        
+        const safeName = sanitizeFileName(file.name);
+        const filePath = path.join(uploadDir, safeName);
+        
         await writeFile(filePath, buffer);
         newAttachments.push({
-          filename: uniqueName,
+          filename: safeName,
           classification: newAttachmentsMeta[i].classification
         });
       }
@@ -152,7 +183,11 @@ export async function DELETE(req) {
     const uploadDir = path.join(process.cwd(), "public/uploads/core-network");
     for (const att of request.attachments) {
       try {
-        await unlink(path.join(uploadDir, att.filename));
+        const filePath = path.join(uploadDir, att.filename);
+        // SECURITY: Ensure we only delete files within our specific upload folder
+        if (filePath.startsWith(uploadDir)) {
+            await unlink(filePath);
+        }
       } catch (err) { console.error(err); }
     }
     await IntelRequest.findByIdAndDelete(_id);
